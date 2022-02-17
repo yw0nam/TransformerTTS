@@ -22,15 +22,18 @@ class DataConfig():
     csv_name: str = 'metadata.csv'
     root_dir: str = './data/LJSpeech-1.1'
     symbols_len: int = 149
+    
 @dataclass
 class TrainConfig():
     """
     Train Setting
     """
     hidden_size: int = 256
+    n_head: int = 8
     embedding_size: int = 512
-    n_iter: int = 60
+    n_layers: int = 6
     outputs_per_step: int = 1
+    dropout_p: int = 0.1
 
     epochs: int = 10000
     lr: float = 0.001

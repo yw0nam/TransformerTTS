@@ -74,7 +74,6 @@ class EncoderPrenet(nn.Module):
 
     def __init__(self, embedding_size, num_hidden, symbols_length):
         super(EncoderPrenet, self).__init__()
-        self.embedding_size = embedding_size
         self.embed = nn.Embedding(symbols_length, embedding_size, padding_idx=0)
 
         self.conv1 = Conv(in_channels=embedding_size,
@@ -266,3 +265,45 @@ class MultiHeadAttention(nn.Module):
         # |c| = (batch_size, m, hidden_size)
 
         return c
+class FFN(nn.Module):
+    """
+    Feed Forward Network
+    """
+    def __init__(self, hidden_size):
+        super(FFN, self).__init__()
+        self.w_1 = Conv(hidden_size, hidden_size * 4,
+                        kernel_size=1, w_init='relu')
+        self.w_2 = Conv(hidden_size * 4, hidden_size, kernel_size=1)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        
+    def forward(self, input_):
+        x = input_.transpose(1, 2)
+        x = self.w_2(torch.relu(self.w_1(x)))
+        x = x.transpose(1, 2)
+        
+        return x
+    
+class EncoderBlock(nn.Module):
+    """
+    Encoder Block
+    """
+    def __init__(self, hidden_size, n_split, dropout_p):
+        super(EncoderBlock, self).__init__()
+        self.MHA = MultiHeadAttention(hidden_size, n_split)
+        self.MHA_dropout = nn.Dropout(dropout_p)
+        self.MHA_norm = nn.LayerNorm(hidden_size)
+        self.FFN = FFN(hidden_size)
+        self.FFN_norm = nn.LayerNorm(hidden_size)
+        self.FFN_dropout = nn.Dropout(dropout_p)
+        
+    def forward(self, input_, mask):
+        # [Xiong et al., 2020] shows that pre-layer normalization works better
+        x = self.MHA_norm(input_)
+        x = input_ + self.MHA_dropout(self.MHA(Q=x, 
+                                      K=x, 
+                                      V=x, 
+                                      mask=mask))
+        x = x + self.FFN_dropout(self.FFN(self.FFN_norm(x)))
+        return x, mask
+        
+        

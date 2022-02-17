@@ -1,2 +1,7 @@
 inflect
 unidecode
+librosa
+scipy
+pandas
+jupyter
+notebook
