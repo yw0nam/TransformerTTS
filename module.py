@@ -72,7 +72,7 @@ class EncoderPrenet(nn.Module):
     Pre-network for Encoder consists of convolution networks.
     """
 
-    def __init__(self, embedding_size, num_hidden, symbols_length):
+    def __init__(self, embedding_size, num_hidden, symbols_length, dropout_p=0.2):
         super(EncoderPrenet, self).__init__()
         self.embed = nn.Embedding(symbols_length, embedding_size, padding_idx=0)
 
@@ -97,9 +97,9 @@ class EncoderPrenet(nn.Module):
         self.batch_norm2 = nn.BatchNorm1d(num_hidden)
         self.batch_norm3 = nn.BatchNorm1d(num_hidden)
 
-        self.dropout1 = nn.Dropout(p=0.2)
-        self.dropout2 = nn.Dropout(p=0.2)
-        self.dropout3 = nn.Dropout(p=0.2)
+        self.dropout1 = nn.Dropout(p=dropout_p)
+        self.dropout2 = nn.Dropout(p=dropout_p)
+        self.dropout3 = nn.Dropout(p=dropout_p)
         self.projection = Linear(num_hidden, num_hidden)
 
     def forward(self, input_):
@@ -117,7 +117,7 @@ class DecoderPrenet(nn.Module):
     """
     Prenet before passing through the network
     """
-    def __init__(self, input_size, hidden_size, output_size, p=0.5):
+    def __init__(self, input_size, hidden_size, output_size, dropout_p=0.5):
         """
         :param input_size: dimension of input
         :param hidden_size: dimension of hidden unit
@@ -130,10 +130,10 @@ class DecoderPrenet(nn.Module):
         self.layer = nn.Sequential(OrderedDict([
              ('fc1', Linear(self.input_size, self.hidden_size)),
              ('relu1', nn.ReLU()),
-             ('dropout1', nn.Dropout(p)),
+             ('dropout1', nn.Dropout(dropout_p)),
              ('fc2', Linear(self.hidden_size, self.output_size)),
              ('relu2', nn.ReLU()),
-             ('dropout2', nn.Dropout(p)),
+             ('dropout2', nn.Dropout(dropout_p)),
         ]))
 
     def forward(self, input_):
@@ -148,7 +148,7 @@ class PostConvNet(nn.Module):
     Post Convolutional Network (mel --> mel)
     """
 
-    def __init__(self, num_hidden, in_channels, out_channels):
+    def __init__(self, num_hidden, in_channels, out_channels, dropout_p=0.1):
         """
         
         :param num_hidden: dimension of hidden 
@@ -174,9 +174,9 @@ class PostConvNet(nn.Module):
         self.batch_norm_list = clones(nn.BatchNorm1d(num_hidden), 3)
         self.pre_batchnorm = nn.BatchNorm1d(num_hidden)
 
-        self.dropout1 = nn.Dropout(p=0.1)
+        self.dropout1 = nn.Dropout(p=dropout_p)
         self.dropout_list = nn.ModuleList(
-            [nn.Dropout(p=0.1) for _ in range(3)])
+            [nn.Dropout(p=dropout_p) for _ in range(3)])
 
     def forward(self, input_, mask=None):
         # Causal Convolution (for auto-regressive)
@@ -288,6 +288,9 @@ class EncoderBlock(nn.Module):
     Encoder Block
     """
     def __init__(self, hidden_size, n_split, dropout_p):
+        """
+        Multihead Attention(MHA) : Q, K and V are equal
+        """
         super(EncoderBlock, self).__init__()
         self.MHA = MultiHeadAttention(hidden_size, n_split)
         self.MHA_dropout = nn.Dropout(dropout_p)
@@ -304,6 +307,55 @@ class EncoderBlock(nn.Module):
                                       V=x, 
                                       mask=mask))
         x = x + self.FFN_dropout(self.FFN(self.FFN_norm(x)))
-        return x, mask
+        return x
         
+class DecoderBlock(nn.Module):
+    """
+    Decoder Block
+    """
+    def __init__(self, hidden_size, n_split, dropout_p):
+        """
+        Multihead Attention(MHA) : Q is previus decoder output, K, V are Encoder output.
+        Masked Multihead Attention(MMHA): Q, K and V are equal
+        """
+        self.MHA = MultiHeadAttention(hidden_size, n_split)
+        self.MHA_dropout = nn.Dropout(dropout_p)
+        self.MHA_norm = nn.LayerNorm(hidden_size)
         
+        self.MMHA = MultiHeadAttention(hidden_size, n_split)
+        self.MMHA_dropout = nn.Dropout(dropout_p)
+        self.MMHA_norm = nn.LayerNorm(hidden_size)
+        
+        self.FFN = FFN(hidden_size)
+        self.FFN_norm = nn.LayerNorm(hidden_size)
+        self.FFN_dropout = nn.Dropout(dropout_p)
+    
+    def forward(self, input_, encoder_output, attn_mask, self_attn_mask, prev):
+        
+        # Training mode
+        if prev is None:
+        
+            x = self.MMHA_norm(input_)
+            x = input_ + self.MMHA_dropout(self.MMHA(Q=x,
+                                                     K=x,
+                                                     V=x,
+                                                     mask=self_attn_mask))
+        #Inference Mode
+        else:
+            normed_prev = self.MMHA_norm(prev)
+            x = self.MMHA_norm(input_)
+            x = input_ + self.MMHA_dropout(self.MMHA(x, 
+                                                     normed_prev, 
+                                                     normed_prev, 
+                                                     mask=None)
+            )
+
+        z = self.MHA_norm(x)
+        z = x + self.MHA_dropout(self.MHA(Q=z,
+                                          K=encoder_output,
+                                          V=encoder_output,
+                                          mask=attn_mask))
+        
+        z = z + self.FFN_dropout(self.FFN(self.FFN_norm(z)))
+        
+        return z
