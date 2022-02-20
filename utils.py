@@ -101,7 +101,7 @@ class preprocess():
 
         # mel spectrogram
         mel_basis = librosa.filters.mel(
-            self.config.sr, self.config.n_fft, self.config.n_mels)  # (n_mels, 1+n_fft//2)
+            sr=self.config.sr, n_fft=self.config.n_fft, n_mels=self.config.n_mels)  # (n_mels, 1+n_fft//2)
         mel = np.dot(mel_basis, mag)  # (n_mels, t)
 
         # to decibel

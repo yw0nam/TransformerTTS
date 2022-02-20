@@ -4,13 +4,13 @@ from utils import get_sinusoid_encoding_table
 from module import *
 
 
-class Encoder(nn.Module):
+class Text_Encoder(nn.Module):
     def __init__(self, train_config, symbol_length):
         """
         Transformer Encoder
 
         """
-        super(Encoder, self).__init__()
+        super(Text_Encoder, self).__init__()
         
         self.alpha = nn.Parameter(torch.ones(1))
         self.pos_emb = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(1024, 
@@ -39,10 +39,12 @@ class Encoder(nn.Module):
         # Positional dropout
         x = self.pos_dropout(x)
         
+        attn_list = []
         for block in self.blocks:
-            x = block(x, mask=mask)
-            
-        return x, c_mask
+            x, attn = block(x, mask=mask)
+            with torch.no_grad():
+                attn_list.append(attn)
+        return x, c_mask, attn_list
     
     @torch.no_grad()
     def generate_mask(self, x, pos):
@@ -53,13 +55,13 @@ class Encoder(nn.Module):
         return c_mask, mask
 
 
-class Decoder(nn.Module):
+class Mel_Decoder(nn.Module):
     def __init__(self, train_config, n_mels):
         """
         Transformer Decoder
         
         """
-        super(Encoder, self).__init__()
+        super(Mel_Decoder, self).__init__()
 
 
         self.pos_emb = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(1024,
@@ -84,7 +86,7 @@ class Decoder(nn.Module):
         self.stop_linear = Linear(
             train_config.hidden_size, 1, w_init='sigmoid')
         
-        self.postconvnet = PostConvNet(train_config.hidden_size)
+        self.postconvnet = PostConvNet(train_config.hidden_size, n_mels, n_mels)
 
     def forward(self, x, encoder_output, pos, c_mask, prev=None):
 
@@ -97,10 +99,14 @@ class Decoder(nn.Module):
         x = self.pos_dropout(x)
         # Positional dropout
 
+        mask_attn_list = []
+        enc_dec_attn_list = []
         for block in self.dec_blocks:
-            x = block(x, encoder_output, 
-                      enc_dec_mask, m_mask, prev)
-        
+            x, mask_attn, enc_dec_attn = block(x, encoder_output, 
+                                                    enc_dec_mask, m_mask, prev)
+            with torch.no_grad():
+                mask_attn_list.append(mask_attn)
+                enc_dec_attn_list.append(enc_dec_attn)
         # Linear Project
         mel_out = self.mel_linear(x)
         
@@ -113,7 +119,7 @@ class Decoder(nn.Module):
         # Stop token Prediction
         stop_tokens = self.stop_linear(x)
         
-        return mel_out, postnet_out, stop_tokens
+        return mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list
 
     @torch.no_grad()
     def generate_mask(self, x, pos_mel, c_mask):
@@ -122,9 +128,13 @@ class Decoder(nn.Module):
         mask = m_mask.eq(0).unsqueeze(1).repeat(1, decoder_len, 1)
         
         if self.training:
-            m_mask = mask + torch.triu(torch.ones(decoder_len, 
-                                                  decoder_len),
-                                       diagonal=1).repeat(batch_size, 1, 1).byte()
+            if next(self.parameters()).is_cuda:
+                m_mask = mask + torch.triu(torch.ones(decoder_len, decoder_len).cuda(),
+                                           diagonal=1).repeat(batch_size, 1, 1).byte()
+            else:
+                m_mask = mask + torch.triu(torch.ones(decoder_len, 
+                                                    decoder_len),
+                                        diagonal=1).repeat(batch_size, 1, 1).byte()
             
             m_mask = m_mask.gt(0)
         else:
@@ -140,11 +150,11 @@ class TransformerTTS(nn.Module):
     """
     def __init__(self, train_config, data_config):
         super(TransformerTTS, self).__init__()
-        self.encoder = Encoder(train_config, data_config.symbol_length)
-        self.decoder = Decoder(train_config, data_config.n_mels)
+        self.Text_Encoder = Text_Encoder(train_config, data_config.symbol_length)
+        self.Mel_Decoder = Mel_Decoder(train_config, data_config.n_mels)
 
     def forward(self, texts, mel_inputs, pos_texts, pos_mels, prev=None):
-        encoder_output, c_mask = self.encoder(texts, pos=pos_texts)
-        mel_out, postnet_out, stop_tokens = self.decoder(mel_inputs, encoder_output, pos_mels, c_mask, prev)
+        encoder_output, c_mask, enc_attn_list = self.Text_Encoder(texts, pos=pos_texts)
+        mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list = self.Mel_Decoder(mel_inputs, encoder_output, pos_mels, c_mask, prev)
 
-        return mel_out, postnet_out, stop_tokens
+        return mel_out, postnet_out, stop_tokens, enc_attn_list, mask_attn_list, enc_dec_attn_list

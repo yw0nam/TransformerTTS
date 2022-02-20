@@ -1,26 +1,27 @@
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import os
 import librosa
 import numpy as np
 from text import text_to_sequence
-import collections
-from scipy import signal
 import torch
-import math
 
 
 class LJDatasets(Dataset):
     """LJSpeech dataset."""
 
-    def __init__(self, config, preprocess):
+    def __init__(self, config, preprocess, train=True):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
             root_dir (string): Directory with all the wavs.
         """
-        self.landmarks_frame = pd.read_csv(os.path.join(config.root_dir, config.csv_name), 
-                                           sep='|', names=['wav_name', 'text_1', 'text_2'])
+        if train:
+            self.landmarks_frame = pd.read_csv(os.path.join(config.root_dir, config.train_csv), 
+                                            sep='|', names=['wav_name', 'text_1', 'text_2'])
+        else:
+            self.landmarks_frame = pd.read_csv(os.path.join(config.root_dir, config.val_csv),
+                                               sep='|', names=['wav_name', 'text_1', 'text_2'])
         self.config = config
         self.preprocess = preprocess
 

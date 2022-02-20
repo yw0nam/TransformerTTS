@@ -210,7 +210,7 @@ class Attention(nn.Module):
         c = torch.bmm(w, V)
         # |c| = (batch_size, m, hidden_size)
 
-        return c
+        return c, w
 
 
 class MultiHeadAttention(nn.Module):
@@ -251,7 +251,7 @@ class MultiHeadAttention(nn.Module):
             mask = torch.cat([mask for _ in range(self.n_splits)], dim=0)
             # |mask| = (batch_size * n_splits, m, n)
 
-        c = self.attn(
+        c, attn = self.attn(
             QWs, KWs, VWs,
             mask=mask,
             dk=self.hidden_size // self.n_splits,
@@ -264,7 +264,7 @@ class MultiHeadAttention(nn.Module):
         c = self.linear(torch.cat(c, dim=-1))
         # |c| = (batch_size, m, hidden_size)
 
-        return c
+        return c, attn
 class FFN(nn.Module):
     """
     Feed Forward Network
@@ -302,12 +302,10 @@ class EncoderBlock(nn.Module):
     def forward(self, input_, mask):
         # [Xiong et al., 2020] shows that pre-layer normalization works better
         x = self.MHA_norm(input_)
-        x = input_ + self.MHA_dropout(self.MHA(Q=x, 
-                                      K=x, 
-                                      V=x, 
-                                      mask=mask))
+        x, attn = self.MHA(Q=x, K=x, V=x, mask=mask)
+        x = input_ + self.MHA_dropout(x)
         x = x + self.FFN_dropout(self.FFN(self.FFN_norm(x)))
-        return x
+        return x, attn
         
 class DecoderBlock(nn.Module):
     """
@@ -318,6 +316,7 @@ class DecoderBlock(nn.Module):
         Multihead Attention(MHA) : Q is previus decoder output, K, V are Encoder output.
         Masked Multihead Attention(MMHA): Q, K and V are equal
         """
+        super(DecoderBlock, self).__init__()
         self.MHA = MultiHeadAttention(hidden_size, n_split)
         self.MHA_dropout = nn.Dropout(dropout_p)
         self.MHA_norm = nn.LayerNorm(hidden_size)
@@ -336,26 +335,20 @@ class DecoderBlock(nn.Module):
         if prev is None:
         
             x = self.MMHA_norm(input_)
-            x = input_ + self.MMHA_dropout(self.MMHA(Q=x,
-                                                     K=x,
-                                                     V=x,
-                                                     mask=self_attn_mask))
+            x, mask_attn = self.MMHA(Q=x, K=x, V=x, mask=self_attn_mask)
+            x = input_ + self.MMHA_dropout(x)
+            
         #Inference Mode
         else:
             normed_prev = self.MMHA_norm(prev)
             x = self.MMHA_norm(input_)
-            x = input_ + self.MMHA_dropout(self.MMHA(x, 
-                                                     normed_prev, 
-                                                     normed_prev, 
-                                                     mask=None)
-            )
+            x, Mask_attn = self.MMHA(x, normed_prev, normed_prev, mask=None)
+            x = input_ + self.MMHA_dropout(x)
 
         z = self.MHA_norm(x)
-        z = x + self.MHA_dropout(self.MHA(Q=z,
-                                          K=encoder_output,
-                                          V=encoder_output,
-                                          mask=attn_mask))
+        z, enc_dec_attn = self.MHA(Q=z, K=encoder_output, V=encoder_output, mask=attn_mask)
+        z = x + self.MHA_dropout(z)
         
         z = z + self.FFN_dropout(self.FFN(self.FFN_norm(z)))
         
-        return z
+        return z, mask_attn, enc_dec_attn

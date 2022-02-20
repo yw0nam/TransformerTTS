@@ -19,9 +19,10 @@ class DataConfig():
     max_db: int = 100
     ref_db: int = 20
     cleaners: str = 'english_cleaners'
-    csv_name: str = 'metadata.csv'
+    train_csv: str = 'metadata.csv'
+    val_csv: str = 'metadata.csv'
     root_dir: str = './data/LJSpeech-1.1'
-    symbols_len: int = 149
+    symbol_length: int = 149
     
 @dataclass
 class TrainConfig():
@@ -34,11 +35,11 @@ class TrainConfig():
     n_layers: int = 6
     outputs_per_step: int = 1
     dropout_p: int = 0.1
-
+    warmup_step: int = 4000
     epochs: int = 10000
     lr: float = 0.001
     save_step: int = 2000
     image_step: int = 500
-    batch_size: int = 32
+    batch_size: int = 16
     checkpoint_path: str = './checkpoint'
     sample_pathL: str = './samples'
