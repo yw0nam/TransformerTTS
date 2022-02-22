@@ -132,12 +132,9 @@ class TransformerTTS(nn.Module):
 
         return mel_out, postnet_out, stop_tokens, enc_attn_list, mask_attn_list, enc_dec_attn_list
     
-    @torch.no_grad()
     def generate_mask(self, pos_src, pos_trg, trg):
-        src_mask = pos_src.lt(1)
-        trg_mask = pos_trg.lt(1)
-        if next(self.parameters()).is_cuda:
-            triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
-        else:
+        with torch.no_grad():
+            src_mask = pos_src.lt(1)
+            trg_mask = pos_trg.lt(1)
             triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
         return src_mask, trg_mask, triu_mask
