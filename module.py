@@ -283,6 +283,78 @@ class FFN(nn.Module):
         
         return x
     
+# class EncoderBlock(nn.Module):
+#     """
+#     Encoder Block
+#     """
+#     def __init__(self, hidden_size, n_split, dropout_p):
+#         """
+#         Multihead Attention(MHA) : Q, K and V are equal
+#         """
+#         super(EncoderBlock, self).__init__()
+#         self.MHA = MultiHeadAttention(hidden_size, n_split)
+#         self.MHA_dropout = nn.Dropout(dropout_p)
+#         self.MHA_norm = nn.LayerNorm(hidden_size)
+#         self.FFN = FFN(hidden_size)
+#         self.FFN_norm = nn.LayerNorm(hidden_size)
+#         self.FFN_dropout = nn.Dropout(dropout_p)
+        
+#     def forward(self, input_, mask):
+#         # [Xiong et al., 2020] shows that pre-layer normalization works better
+#         x = self.MHA_norm(input_)
+#         x, attn = self.MHA(Q=x, K=x, V=x, mask=mask)
+#         x = input_ + self.MHA_dropout(x)
+#         x = x + self.FFN_dropout(self.FFN(self.FFN_norm(x)))
+#         return x, attn
+
+
+# class DecoderBlock(nn.Module):
+#     """
+#     Decoder Block
+#     """
+
+#     def __init__(self, hidden_size, n_split, dropout_p):
+#         """
+#         Multihead Attention(MHA) : Q is previus decoder output, K, V are Encoder output.
+#         Masked Multihead Attention(MMHA): Q, K and V are equal
+#         """
+#         super(DecoderBlock, self).__init__()
+#         self.MHA = MultiHeadAttention(hidden_size, n_split)
+#         self.MHA_dropout = nn.Dropout(dropout_p)
+#         self.MHA_norm = nn.LayerNorm(hidden_size)
+
+#         self.MMHA = MultiHeadAttention(hidden_size, n_split)
+#         self.MMHA_dropout = nn.Dropout(dropout_p)
+#         self.MMHA_norm = nn.LayerNorm(hidden_size)
+
+#         self.FFN = FFN(hidden_size)
+#         self.FFN_norm = nn.LayerNorm(hidden_size)
+#         self.FFN_dropout = nn.Dropout(dropout_p)
+        
+#     def forward(self, input_, encoder_output, attn_mask, self_attn_mask, prev):
+        
+#         # Training mode
+#         if prev is None:
+        
+#             x = self.MMHA_norm(input_)
+#             x, mask_attn = self.MMHA(Q=x, K=x, V=x, mask=self_attn_mask)
+#             x = input_ + self.MMHA_dropout(x)
+            
+#         #Inference Mode
+#         else:
+#             normed_prev = self.MMHA_norm(prev)
+#             x = self.MMHA_norm(input_)
+#             x, mask_attn = self.MMHA(x, normed_prev, normed_prev, mask=None)
+#             x = input_ + self.MMHA_dropout(x)
+
+#         z = self.MHA_norm(x)
+#         z, enc_dec_attn = self.MHA(Q=z, K=encoder_output, V=encoder_output, mask=attn_mask)
+#         z = x + self.MHA_dropout(z)
+        
+#         z = z + self.FFN_dropout(self.FFN(self.FFN_norm(z)))
+        
+#         return z, mask_attn, enc_dec_attn
+
 class EncoderBlock(nn.Module):
     """
     Encoder Block
@@ -292,17 +364,18 @@ class EncoderBlock(nn.Module):
         Multihead Attention(MHA) : Q, K and V are equal
         """
         super(EncoderBlock, self).__init__()
-        self.MHA = MultiHeadAttention(hidden_size, n_split)
+        self.MHA = nn.MultiheadAttention(
+            embed_dim=hidden_size, num_heads=n_split, batch_first=True)
         self.MHA_dropout = nn.Dropout(dropout_p)
         self.MHA_norm = nn.LayerNorm(hidden_size)
         self.FFN = FFN(hidden_size)
         self.FFN_norm = nn.LayerNorm(hidden_size)
         self.FFN_dropout = nn.Dropout(dropout_p)
-        
+
     def forward(self, input_, mask):
         # [Xiong et al., 2020] shows that pre-layer normalization works better
         x = self.MHA_norm(input_)
-        x, attn = self.MHA(Q=x, K=x, V=x, mask=mask)
+        x, attn = self.MHA(query=x, key=x, value=x, key_padding_mask=mask)
         x = input_ + self.MHA_dropout(x)
         x = x + self.FFN_dropout(self.FFN(self.FFN_norm(x)))
         return x, attn
@@ -317,11 +390,12 @@ class DecoderBlock(nn.Module):
         Masked Multihead Attention(MMHA): Q, K and V are equal
         """
         super(DecoderBlock, self).__init__()
-        self.MHA = MultiHeadAttention(hidden_size, n_split)
+        self.MHA = nn.MultiheadAttention(embed_dim=hidden_size, num_heads=n_split, batch_first=True)
         self.MHA_dropout = nn.Dropout(dropout_p)
         self.MHA_norm = nn.LayerNorm(hidden_size)
         
-        self.MMHA = MultiHeadAttention(hidden_size, n_split)
+        self.MMHA = nn.MultiheadAttention(
+            embed_dim=hidden_size, num_heads=n_split, batch_first=True)
         self.MMHA_dropout = nn.Dropout(dropout_p)
         self.MMHA_norm = nn.LayerNorm(hidden_size)
         
@@ -329,24 +403,18 @@ class DecoderBlock(nn.Module):
         self.FFN_norm = nn.LayerNorm(hidden_size)
         self.FFN_dropout = nn.Dropout(dropout_p)
     
-    def forward(self, input_, encoder_output, attn_mask, self_attn_mask, prev):
+    def forward(self, input_, encoder_output, enc_dec_mask, dec_mask, dec_attn_mask):
         
-        # Training mode
-        if prev is None:
-        
-            x = self.MMHA_norm(input_)
-            x, mask_attn = self.MMHA(Q=x, K=x, V=x, mask=self_attn_mask)
-            x = input_ + self.MMHA_dropout(x)
-            
-        #Inference Mode
-        else:
-            normed_prev = self.MMHA_norm(prev)
-            x = self.MMHA_norm(input_)
-            x, Mask_attn = self.MMHA(x, normed_prev, normed_prev, mask=None)
-            x = input_ + self.MMHA_dropout(x)
+        x = self.MMHA_norm(input_)
+        x, mask_attn = self.MMHA(
+            query=x, key=x, value=x, key_padding_mask=dec_mask, attn_mask=dec_attn_mask)
+        x = input_ + self.MMHA_dropout(x)
 
         z = self.MHA_norm(x)
-        z, enc_dec_attn = self.MHA(Q=z, K=encoder_output, V=encoder_output, mask=attn_mask)
+        z, enc_dec_attn = self.MHA(query=z, 
+                                   key=encoder_output, 
+                                   value=encoder_output, 
+                                   key_padding_mask=enc_dec_mask)
         z = x + self.MHA_dropout(z)
         
         z = z + self.FFN_dropout(self.FFN(self.FFN_norm(z)))

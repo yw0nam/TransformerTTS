@@ -9,6 +9,7 @@ import torch
 from tensorboardX import SummaryWriter
 from network import TransformerTTS
 import torchvision.utils as vutils
+import transformers
 
 def adjust_learning_rate(optimizer, step_num, train_config):
     lr = train_config.lr * train_config.warmup_step**0.5 * min(step_num * train_config.warmup_step**-1.5, step_num**-0.5)
@@ -27,8 +28,7 @@ def main(data_config, train_config):
     m.train()
     optimizer = torch.optim.AdamW(m.parameters(), lr=train_config.lr)
 
-    pos_weight = torch.FloatTensor([5.]).cuda()
-    writer = SummaryWriter()
+    writer = SummaryWriter(log_dir='add_stop_token')
 
     for epoch in range(train_config.epochs):
 
@@ -41,9 +41,7 @@ def main(data_config, train_config):
             if global_step < 400000:
                 adjust_learning_rate(optimizer, global_step, train_config)
 
-            character, mel, mel_input, pos_text, pos_mel = data['text'], data['mel'], data['mel_input'], data['pos_text'], data['pos_mel']
-            # character, mel, mel_input, pos_text, pos_mel, _ = data
-            stop_tokens = torch.abs(pos_mel.ne(0).type(torch.float) - 1)
+            character, mel, mel_input, pos_text, pos_mel, stop_token = data.values()
 
             character = character.cuda()
             mel = mel.cuda()
@@ -56,12 +54,14 @@ def main(data_config, train_config):
 
             mel_loss = nn.L1Loss()(mel_out, mel)
             post_mel_loss = nn.L1Loss()(postnet_out, mel)
-
-            loss = mel_loss + post_mel_loss
+            stop_loss = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(train_config.bce_weight,
+                                                                           dtype=torch.float))(stop_pred.squeeze(), stop_token)
+            loss = mel_loss + post_mel_loss + stop_loss
 
             writer.add_scalars('training_loss', {
                 'mel_loss': mel_loss,
                 'post_mel_loss': post_mel_loss,
+                'stop_loss' : stop_loss
 
             }, global_step)
 
@@ -70,34 +70,34 @@ def main(data_config, train_config):
                 'decoder_alpha': m.module.Mel_Decoder.alpha.data,
             }, global_step)
 
-            if global_step % train_config.image_step == 1:
+            # if global_step % train_config.image_step == 1:
 
-                for i, prob in enumerate(enc_dec_attn_list):
+            #     for i, prob in enumerate(enc_dec_attn_list):
 
-                    num_h = prob.size(0)
-                    for j in range(4):
+            #         num_h = prob.size(0)
+            #         for j in range(4):
 
-                        x = vutils.make_grid(prob[j*16] * 255)
-                        writer.add_image('Attention_%d_0' %
-                                         global_step, x, i*4+j)
+            #             x = vutils.make_grid(prob[j*16] * 255)
+            #             writer.add_image('Attention_%d_0' %
+            #                              global_step, x, i*4+j)
 
-                for i, prob in enumerate(enc_attn_list):
-                    num_h = prob.size(0)
+            #     for i, prob in enumerate(enc_attn_list):
+            #         num_h = prob.size(0)
 
-                    for j in range(4):
+            #         for j in range(4):
 
-                        x = vutils.make_grid(prob[j*16] * 255)
-                        writer.add_image('Attention_enc_%d_0' %
-                                         global_step, x, i*4+j)
+            #             x = vutils.make_grid(prob[j*16] * 255)
+            #             writer.add_image('Attention_enc_%d_0' %
+            #                              global_step, x, i*4+j)
 
-                for i, prob in enumerate(mask_attn_list):
+            #     for i, prob in enumerate(mask_attn_list):
 
-                    num_h = prob.size(0)
-                    for j in range(4):
+            #         num_h = prob.size(0)
+            #         for j in range(4):
 
-                        x = vutils.make_grid(prob[j*16] * 255)
-                        writer.add_image('Attention_dec_%d_0' %
-                                         global_step, x, i*4+j)
+            #             x = vutils.make_grid(prob[j*16] * 255)
+            #             writer.add_image('Attention_dec_%d_0' %
+            #                              global_step, x, i*4+j)
 
             optimizer.zero_grad()
             # Calculate gradients
@@ -109,10 +109,15 @@ def main(data_config, train_config):
             optimizer.step()
 
             if global_step % train_config.save_step == 0:
-                torch.save({'model': m.state_dict(),
-                        'optimizer': optimizer.state_dict()},
-                       os.path.join(train_config.checkpoint_path, 'checkpoint_transformer_%d.pth.tar' % global_step))
-
+                try:
+                    torch.save({'model': m.state_dict(),
+                            'optimizer': optimizer.state_dict()},
+                        os.path.join(train_config.checkpoint_path, 'checkpoint_transformer_%d.pth.tar' % global_step))
+                except:
+                    os.mkdir(train_config.checkpoint_path)
+                    torch.save({'model': m.state_dict(),
+                                'optimizer': optimizer.state_dict()},
+                            os.path.join(train_config.checkpoint_path, 'checkpoint_transformer_%d.pth.tar' % global_step))
 
 if __name__ == '__main__':
     data_config = DataConfig(

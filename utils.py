@@ -5,6 +5,8 @@ from scipy import signal
 import torch
 from dataclasses import dataclass
 
+
+
 def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
     ''' Sinusoid position encoding table '''
 

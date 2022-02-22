@@ -5,7 +5,7 @@ import librosa
 import numpy as np
 from text import text_to_sequence
 import torch
-
+from torch.nn.utils.rnn import pad_sequence
 
 class LJDatasets(Dataset):
     """LJSpeech dataset."""
@@ -47,12 +47,15 @@ class LJDatasets(Dataset):
             
         mel_input = np.concatenate(
             [np.zeros([1, self.config.n_mels], np.float32), mel[:-1, :]], axis=0)
-        text_length = len(text)
-        pos_text = np.arange(1, text_length + 1)
+        pos_text = np.arange(1, len(text) + 1)
         pos_mel = np.arange(1, mel.shape[0] + 1)
+        
+        stop_token = [0]*(len(mel_input) - 1)
+        stop_token += [1]
 
-        sample = {'text': text, 'mel': mel, 'text_length': text_length,
-                  'mel_input': mel_input, 'pos_mel': pos_mel, 'pos_text': pos_text}
+        sample = {'text': text, 'mel': mel, 'mel_input': mel_input, 
+                 'pos_text': pos_text, 'pos_mel': pos_mel, 
+                 'stop_token': torch.tensor(stop_token, dtype=torch.float)}
 
         return sample
 
@@ -66,9 +69,10 @@ class Transformer_Collator():
         text = [d['text'] for d in batch]
         mel = [d['mel'] for d in batch]
         mel_input = [d['mel_input'] for d in batch]
-        text_length = [d['text_length'] for d in batch]
+        stop_token = [d['stop_token'] for d in batch]
         pos_mel = [d['pos_mel'] for d in batch]
         pos_text = [d['pos_text'] for d in batch]
+        text_length = [len(d['text']) for d in batch]
         
         text = [i for i, _ in sorted(
             zip(text, text_length), key=lambda x: x[1], reverse=True)]
@@ -80,20 +84,21 @@ class Transformer_Collator():
             zip(pos_text, text_length), key=lambda x: x[1], reverse=True)]
         pos_mel = [i for i, _ in sorted(
             zip(pos_mel, text_length), key=lambda x: x[1], reverse=True)]
-        text_length = sorted(text_length, reverse=True)
-
+        stop_token = [i for i, _ in sorted(
+            zip(stop_token, text_length), key=lambda x: x[1], reverse=True)]
+        
         text = self.preprocess._prepare_data(text).astype(np.int32)
         mel = self.preprocess._pad_mel(mel)
         mel_input = self.preprocess._pad_mel(mel_input)
         pos_mel = self.preprocess._prepare_data(pos_mel).astype(np.int32)
         pos_text = self.preprocess._prepare_data(pos_text).astype(np.int32)
-        
+        stop_tokens = pad_sequence(stop_token, batch_first=True, padding_value=0)
         return_values = {
             'text': torch.LongTensor(text),
             'mel': torch.FloatTensor(mel),
             'mel_input': torch.FloatTensor(mel_input),
             'pos_text' : torch.LongTensor(pos_text),
             'pos_mel' :torch.LongTensor(pos_mel),
-            'text_length' : torch.LongTensor(text_length)
+            'stop_tokens' : stop_tokens
         }
         return return_values

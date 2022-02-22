@@ -27,9 +27,8 @@ class Text_Encoder(nn.Module):
                                           train_config.n_head, 
                                           train_config.dropout_p), train_config.n_layers)
     
-    def forward(self, x, pos):
+    def forward(self, x, pos, mask):
         
-        c_mask, mask = self.generate_mask(x, pos)
         x = self.encoder_prenet(x)
 
         # Get positional embedding, apply alpha and add
@@ -42,17 +41,9 @@ class Text_Encoder(nn.Module):
         attn_list = []
         for block in self.blocks:
             x, attn = block(x, mask=mask)
-            with torch.no_grad():
-                attn_list.append(attn)
-        return x, c_mask, attn_list
+            attn_list.append(attn.detach())
+        return x, attn_list
     
-    @torch.no_grad()
-    def generate_mask(self, x, pos):
-        
-        c_mask = pos.ne(0).type(torch.float)
-        mask = pos.eq(0).unsqueeze(1).repeat(1, x.size(1), 1)
-        
-        return c_mask, mask
 
 
 class Mel_Decoder(nn.Module):
@@ -88,9 +79,8 @@ class Mel_Decoder(nn.Module):
         
         self.postconvnet = PostConvNet(train_config.hidden_size, n_mels, n_mels)
 
-    def forward(self, x, encoder_output, pos, c_mask, prev=None):
+    def forward(self, x, pos, encoder_output, enc_dec_mask, dec_mask, dec_attn_mask):
 
-        m_mask, enc_dec_mask = self.generate_mask(x, pos, c_mask)
         x = self.decoder_prenet(x)
         x = self.norm(x)
         # Get positional embedding, apply alpha and add
@@ -103,10 +93,9 @@ class Mel_Decoder(nn.Module):
         enc_dec_attn_list = []
         for block in self.dec_blocks:
             x, mask_attn, enc_dec_attn = block(x, encoder_output, 
-                                                    enc_dec_mask, m_mask, prev)
-            with torch.no_grad():
-                mask_attn_list.append(mask_attn)
-                enc_dec_attn_list.append(enc_dec_attn)
+                                                    enc_dec_mask, dec_mask, dec_attn_mask)
+            mask_attn_list.append(mask_attn.detach())
+            enc_dec_attn_list.append(enc_dec_attn.detach())
         # Linear Project
         mel_out = self.mel_linear(x)
         
@@ -121,29 +110,6 @@ class Mel_Decoder(nn.Module):
         
         return mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list
 
-    @torch.no_grad()
-    def generate_mask(self, x, pos_mel, c_mask):
-        batch_size, decoder_len = x.size(0), x.size(1)
-        m_mask = pos_mel.ne(0).type(torch.float)
-        mask = m_mask.eq(0).unsqueeze(1).repeat(1, decoder_len, 1)
-        
-        if self.training:
-            if next(self.parameters()).is_cuda:
-                m_mask = mask + torch.triu(torch.ones(decoder_len, decoder_len).cuda(),
-                                           diagonal=1).repeat(batch_size, 1, 1).byte()
-            else:
-                m_mask = mask + torch.triu(torch.ones(decoder_len, 
-                                                    decoder_len),
-                                        diagonal=1).repeat(batch_size, 1, 1).byte()
-            
-            m_mask = m_mask.gt(0)
-        else:
-            m_mask = None
-            
-        enc_dec_mask = c_mask.eq(0).unsqueeze(-1).repeat(1, 1, decoder_len)
-        enc_dec_mask = enc_dec_mask.transpose(1, 2)
-        return m_mask, enc_dec_mask
-
 class TransformerTTS(nn.Module):
     """
     Transformer Network
@@ -153,8 +119,25 @@ class TransformerTTS(nn.Module):
         self.Text_Encoder = Text_Encoder(train_config, data_config.symbol_length)
         self.Mel_Decoder = Mel_Decoder(train_config, data_config.n_mels)
 
-    def forward(self, texts, mel_inputs, pos_texts, pos_mels, prev=None):
-        encoder_output, c_mask, enc_attn_list = self.Text_Encoder(texts, pos=pos_texts)
-        mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list = self.Mel_Decoder(mel_inputs, encoder_output, pos_mels, c_mask, prev)
+    def forward(self, texts, mel_inputs, pos_texts, pos_mels):
+        src_mask, trg_mask, triu_mask = self.generate_mask(pos_texts, pos_mels, mel_inputs)
+        
+        encoder_output, enc_attn_list = self.Text_Encoder(texts, pos_texts, src_mask)
+        mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list = self.Mel_Decoder(mel_inputs, 
+                                                                                                pos_mels,
+                                                                                                encoder_output, 
+                                                                                                src_mask, 
+                                                                                                trg_mask, 
+                                                                                                triu_mask)
 
         return mel_out, postnet_out, stop_tokens, enc_attn_list, mask_attn_list, enc_dec_attn_list
+    
+    @torch.no_grad()
+    def generate_mask(self, pos_src, pos_trg, trg):
+        src_mask = pos_src.lt(1)
+        trg_mask = pos_trg.lt(1)
+        if next(self.parameters()).is_cuda:
+            triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
+        else:
+            triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
+        return src_mask, trg_mask, triu_mask

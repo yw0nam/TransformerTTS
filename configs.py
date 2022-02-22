@@ -23,23 +23,25 @@ class DataConfig():
     val_csv: str = 'metadata.csv'
     root_dir: str = './data/LJSpeech-1.1'
     symbol_length: int = 149
+    n_iter = 60
     
 @dataclass
 class TrainConfig():
     """
     Train Setting
     """
+    bce_weight: list = [1, 8]
     hidden_size: int = 256
-    n_head: int = 8
+    n_head: int = 4
     embedding_size: int = 512
-    n_layers: int = 6
+    n_layers: int = 3
     outputs_per_step: int = 1
     dropout_p: int = 0.1
     warmup_step: int = 4000
     epochs: int = 10000
     lr: float = 0.001
     save_step: int = 2000
-    image_step: int = 500
-    batch_size: int = 16
+    image_step: int = 2000
+    batch_size: int = 32
     checkpoint_path: str = './checkpoint'
     sample_pathL: str = './samples'
