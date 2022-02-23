@@ -7,8 +7,7 @@ from tqdm import tqdm
 from torch import nn
 import torch
 from tensorboardX import SummaryWriter
-from network import TransformerTTS
-import torchvision.utils as vutils
+from TransFormerTTS.network import TransformerTTS
 import transformers
 from engine import Engine
 

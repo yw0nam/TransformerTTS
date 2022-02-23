@@ -6,6 +6,9 @@ import numpy as np
 from text import text_to_sequence
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import pytorch_lightning as pl
+from utils import preprocess
+from torch.utils.data import DataLoader
 
 class LJDatasets(Dataset):
     """LJSpeech dataset."""
@@ -93,12 +96,63 @@ class Transformer_Collator():
         pos_mel = self.preprocess._prepare_data(pos_mel).astype(np.int32)
         pos_text = self.preprocess._prepare_data(pos_text).astype(np.int32)
         stop_tokens = pad_sequence(stop_token, batch_first=True, padding_value=0)
-        return_values = {
+        model_input = {
             'text': torch.LongTensor(text),
-            'mel': torch.FloatTensor(mel),
             'mel_input': torch.FloatTensor(mel_input),
-            'pos_text' : torch.LongTensor(pos_text),
-            'pos_mel' :torch.LongTensor(pos_mel),
-            'stop_tokens' : stop_tokens
+            'pos_text': torch.LongTensor(pos_text),
+            'pos_mel': torch.LongTensor(pos_mel),
         }
-        return return_values
+        label = {
+            'mel': torch.FloatTensor(mel),
+            'stop_tokens': stop_tokens
+        }
+        return model_input, label
+    
+class PartitionPerEpochDataModule(pl.LightningDataModule):
+
+    def __init__(
+        self, batch_size, config, num_workers=4
+    ):
+        super().__init__()
+        self.config = config
+        self.preprocessor = preprocess(config)
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        
+    def prepare_data(self):
+        pass
+    def setup(self):
+        """
+        Anything called here is being distributed across GPUs
+        (do many times).  Lightning handles distributed sampling.
+        """
+        # Build the val dataset
+        
+        self.val_dataset = LJDatasets(self.config, self.preprocessor, train=False)
+        self.train_dataset = LJDatasets(self.config, self.preprocessor, train=True)
+        
+    def train_dataloader(self):
+        """
+        This function sends the same file to each GPU and
+        loops back after running out of files.
+        Lightning will apply distributed sampling to
+        the data loader so that each GPU receives
+        different samples from the file until exhausted.
+        """
+        return DataLoader(
+            self.train_dataset,
+            self.batch_size,
+            num_workers=self.num_workers,
+            collate_fn=Transformer_Collator(self.preprocessor),
+            pin_memory=True,
+            shuffle=True
+        )
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            self.batch_size,
+            num_workers=self.num_workers,
+            collate_fn=Transformer_Collator(self.preprocessor),
+            pin_memory=True,
+            shuffle=True
+        )

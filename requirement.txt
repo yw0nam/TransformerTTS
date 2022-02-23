@@ -5,4 +5,6 @@ scipy
 pandas
 jupyter
 notebook
-pip install transformers
+transformers
+pytorch-lightning
+  

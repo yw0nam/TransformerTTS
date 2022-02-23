@@ -1,7 +1,7 @@
 import torch
 from torch import nn 
 from utils import get_sinusoid_encoding_table
-from module import *
+from TransFormerTTS.module import *
 
 
 class Text_Encoder(nn.Module):
@@ -115,27 +115,42 @@ class TransformerTTS(nn.Module):
     """
     Transformer Network
     """
-    def __init__(self, train_config, data_config):
+    def __init__(self, train_config, data_config, return_attn=False):
         super(TransformerTTS, self).__init__()
         self.Text_Encoder = Text_Encoder(train_config, data_config.symbol_length)
         self.Mel_Decoder = Mel_Decoder(train_config, data_config.n_mels)
+        self.return_attn = return_attn
 
-    def forward(self, texts, mel_inputs, pos_texts, pos_mels):
-        src_mask, trg_mask, triu_mask = self.generate_mask(pos_texts, pos_mels, mel_inputs)
+    def forward(self, text, mel_input, pos_text, pos_mel):
+        src_mask, trg_mask, triu_mask = self.generate_mask(pos_text, pos_mel, mel_input)
         
-        encoder_output, enc_attn_list = self.Text_Encoder(texts, pos_texts, src_mask)
-        mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list = self.Mel_Decoder(mel_inputs, 
-                                                                                                pos_mels,
+        encoder_output, enc_attn_list = self.Text_Encoder(text, pos_text, src_mask)
+        mel_out, postnet_out, stop_tokens, mask_attn_list, enc_dec_attn_list = self.Mel_Decoder(mel_input, 
+                                                                                                pos_mel,
                                                                                                 encoder_output, 
                                                                                                 src_mask, 
                                                                                                 trg_mask, 
                                                                                                 triu_mask)
-
-        return mel_out, postnet_out, stop_tokens, enc_attn_list, mask_attn_list, enc_dec_attn_list
+        if self.return_attn:
+            return {'pred_mel':mel_out, 
+                    'pred_mel_post' :postnet_out, 
+                    'pred_stop_tokens' :stop_tokens, 
+                    'enc_attn_list' :enc_attn_list, 
+                    'mask_attn_list': mask_attn_list, 
+                    'enc_dec_attn_list': enc_dec_attn_list
+                    }
+        else:
+            return {
+                'pred_mel': mel_out,
+                'pred_mel_post': postnet_out,
+                'pred_stop_tokens': stop_tokens,
+                }
     
     def generate_mask(self, pos_src, pos_trg, trg):
         with torch.no_grad():
             src_mask = pos_src.lt(1)
             trg_mask = pos_trg.lt(1)
-            triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
+            # triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool().cuda()
+            triu_mask = torch.triu(torch.ones(trg.size(1), trg.size(1)), diagonal=1).bool()
+            triu_mask = triu_mask.type_as(pos_src).bool()
         return src_mask, trg_mask, triu_mask
