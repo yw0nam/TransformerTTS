@@ -30,20 +30,20 @@ class TrainConfig():
     """
     Train Setting
     """
-    bce_weight: int = 8
+    bce_weight: int = 500
     hidden_size: int = 256
-    n_head: int = 4
+    n_head: int = 8
     embedding_size: int = 512
-    n_layers: int = 3
+    n_layers: int = 5
     outputs_per_step: int = 1
     dropout_p: int = 0.1
     warmup_step: int = 4000
     warmup_ratio: float = 0.1
-    epochs: int = 1000
+    epochs: int = 500
     lr: float = 0.001
     save_step: int = 5
     image_step: int = 2000
-    batch_size: int = 32
+    batch_size: int = 64
     checkpoint_path: str = './my_engine/checkpoint/'
     model_save_path: str = './my_engine/best_model.bin'
     log_dir: str = './my_engine/tensorboard/'

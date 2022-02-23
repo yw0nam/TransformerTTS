@@ -74,9 +74,10 @@ class Mel_Decoder(nn.Module):
         
         self.mel_linear = Linear(train_config.hidden_size, 
                                  n_mels * train_config.outputs_per_step)
-        self.stop_linear = Linear(
-            train_config.hidden_size, 1, w_init='sigmoid')
-        
+        self.stop_linear = nn.Sequential(
+            Linear(train_config.hidden_size, 1),
+            nn.Sigmoid()
+        )
         self.postconvnet = PostConvNet(train_config.hidden_size, n_mels, n_mels)
 
     def forward(self, x, pos, encoder_output, enc_dec_mask, dec_mask, dec_attn_mask):

@@ -12,11 +12,6 @@ import torchvision.utils as vutils
 import transformers
 from engine import Engine
 
-def adjust_learning_rate(optimizer, step_num, train_config):
-    lr = train_config.lr * train_config.warmup_step**0.5 * min(step_num * train_config.warmup_step**-1.5, step_num**-0.5)
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
 def load_loader(train_config, data_config):
     preprocessor = preprocess(data_config)
     train_dataset = LJDatasets(data_config, preprocessor, train=True)
