@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import pytorch_lightning as pl
 import transformers
+
 class PL_model(pl.LightningModule):
     def __init__(self, train_config, data_config, gpu_num):
         super().__init__()

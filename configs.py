@@ -5,6 +5,8 @@ class DataConfig():
     """
     Data Settings
     """
+    
+    # Audio Config
     n_fft: int = 2048
     sr: int = 22050
     preemphasis: float = 0.97
@@ -18,12 +20,22 @@ class DataConfig():
     ref_level_db: int = 20
     max_db: int = 100
     ref_db: int = 20
-    cleaners: str = 'english_cleaners'
+    n_iter: int = 60
+    # Text Config 
+    # previous setting(using text)
+    # cleaners: str = 'english_cleaners'
+    # symbol_length: int = 149
+    # After Setting(using phoneme)
+    cleaners: str = "phoneme_cleaners"
+    use_phonemes: bool =True
+    language: str ="en-us"
+    phoneme_cache_path: str= './phonemes/'
+    symbol_length: int = 130
+    enable_eos_bos: bool = True
+    # Data path config
     train_csv: str = 'metadata.csv'
     val_csv: str = 'metadata.csv'
     root_dir: str = './data/LJSpeech-1.1'
-    symbol_length: int = 149
-    n_iter: int = 60
     train_samples: int = 12000
     
 @dataclass
@@ -35,7 +47,7 @@ class TrainConfig():
     hidden_size: int = 256
     n_head: int = 8
     embedding_size: int = 512
-    n_layers: int = 5
+    n_layers: int = 6
     outputs_per_step: int = 1
     dropout_p: int = 0.1
     warmup_step: int = 4000
@@ -44,8 +56,7 @@ class TrainConfig():
     lr: float = 0.001
     save_step: int = 5
     image_step: int = 2000
-    batch_size: int = 64
-    checkpoint_path: str = './my_engine/checkpoint/'
-    model_save_path: str = './my_engine/best_model.bin'
-    log_dir: str = './my_engine/tensorboard/'
+    batch_size: int = 32
+    checkpoint_path: str = './models/checkpoint/'
+    log_dir: str = './models/tensorboard/'
     load_checkpoint: str = ""
